@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish ID — Review Annotations</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .filter-btn {
+      padding: 6px 14px;
+      background: #1e293b;
+      border: 1.5px solid #334155;
+      border-radius: 20px;
+      color: #94a3b8;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .filter-btn:hover { border-color: #60a5fa; color: #fff; }
+    .filter-btn.active { background: #2563eb; border-color: #60a5fa; color: #fff; font-weight: 600; }
+    .filter-count { font-size: 0.75rem; opacity: 0.75; }
+    .pending-btn { border-color: #f59e0b44; color: #f59e0b; }
+    .pending-btn:hover { border-color: #f59e0b; }
+    .pending-btn.active { background: #92400e; border-color: #f59e0b; color: #fde68a; }
+    .filter-sep { color: #334155; align-self: center; padding: 0 4px; }
+
+    .review-layout {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      margin-top: 20px;
+    }
+    .review-image-wrap {
+      flex: 1;
+      position: relative;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      line-height: 0;
+    }
+    #review-img { width: 100%; display: block; }
+    #review-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      cursor: pointer;
+    }
+    .review-panel {
+      width: 280px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .nav-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #111827;
+      border-radius: 8px;
+      padding: 10px 14px;
+      border: 1px solid #1e3a5f;
+    }
+    .nav-count { font-size: 0.85rem; color: #94a3b8; }
+    #save-status { font-size: 0.82rem; min-height: 1.2em; }
+    .nav-slider {
+      width: 100%;
+      margin: 8px 0 0;
+      accent-color: #2563eb;
+      cursor: pointer;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #475569;
+      padding: 60px 20px;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🐠 Review Annotations</h1>
+    <div class="header-right">
+      <a href="/" class="btn btn-secondary">← Live View</a>
+    </div>
+  </header>
+
+  <main>
+    <div id="empty-state" class="empty-state hidden">No annotations yet.</div>
+
+    <div id="review-ui" class="hidden">
+      <div id="filter-bar" class="filter-bar"></div>
+
+      <div class="nav-bar">
+        <button class="btn btn-secondary" onclick="navigate(-1)">← Prev</button>
+        <span class="nav-count" id="nav-count"></span>
+        <button class="btn btn-secondary" onclick="navigate(1)">Next →</button>
+      </div>
+      <input type="range" id="nav-slider" min="1" max="1" value="1" class="nav-slider">
+
+      <div class="review-layout">
+        <div class="review-image-wrap">
+          <img id="review-img" alt="Annotation frame">
+          <canvas id="review-canvas"></canvas>
+        </div>
+
+        <div class="review-panel">
+          <div id="label-picker" class="hidden" style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #2563eb44;">
+            <p class="picker-prompt">Relabel this box:</p>
+            <div id="label-grid"></div>
+            <button class="btn-add-species" onclick="addNewSpecies()">+ New species</button>
+          </div>
+
+          <ul id="box-list"></ul>
+
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button class="btn btn-primary" onclick="saveChanges()">Save Changes</button>
+            <span id="save-status"></span>
+          </div>
+
+          <div id="pending-actions" class="hidden" style="display:flex;flex-direction:column;gap:8px;">
+            <a id="annotate-link" href="/" class="btn btn-primary" style="text-align:center;">Annotate this Frame</a>
+            <button class="btn btn-secondary" style="color:#ef4444;border-color:#ef4444;" onclick="deletePending()">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="review.js"></script>
+</body>
+</html>

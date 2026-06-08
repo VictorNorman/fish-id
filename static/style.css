@@ -1,0 +1,208 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, sans-serif;
+  background: #0a0f1a;
+  color: #e0e8f0;
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #111827;
+  border-bottom: 1px solid #1e3a5f;
+}
+
+header h1 { font-size: 1.25rem; }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#retrain-status { font-size: 0.8rem; color: #94a3b8; }
+
+main {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+/* ---- Viewer ---- */
+#viewer {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+#stream { width: 100%; display: block; }
+
+#annotation-layer { position: relative; width: 100%; }
+#annotation-layer.hidden { display: none; }
+
+#frozen-frame { width: 100%; display: block; }
+
+#canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  cursor: crosshair;
+}
+
+/* ---- Controls ---- */
+.controls { display: flex; gap: 10px; margin-top: 14px; }
+
+.btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn-primary   { background: #2563eb; color: #fff; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-secondary { background: #1e3a5f; color: #93c5fd; }
+.btn-secondary:hover { background: #1e40af; color: #fff; }
+
+.hidden { display: none !important; }
+
+/* ---- Annotation panel ---- */
+#annotation-panel {
+  margin-top: 20px;
+  background: #111827;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #1e3a5f;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- Label picker ---- */
+#label-picker {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #2563eb44;
+}
+
+.picker-prompt {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#label-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.label-btn {
+  padding: 8px 16px;
+  background: #1e293b;
+  border: 1.5px solid #334155;
+  border-radius: 20px;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.label-btn:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.label-btn.active {
+  background: #2563eb;
+  border-color: #60a5fa;
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-add-species {
+  background: none;
+  border: 1.5px dashed #334155;
+  border-radius: 20px;
+  color: #64748b;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.btn-add-species:hover { border-color: #60a5fa; color: #93c5fd; }
+
+/* ---- Box list ---- */
+#box-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#box-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #0f172a;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #1e3a5f;
+  cursor: pointer;
+  transition: border-color 0.1s;
+}
+#box-list li.selected { border-color: #2563eb; }
+#box-list li:hover    { border-color: #334155; }
+
+.box-swatch {
+  width: 12px; height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.box-label {
+  flex: 1;
+  font-size: 0.88rem;
+}
+.box-label.unlabeled { color: #475569; font-style: italic; }
+
+.box-coords {
+  display: block;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+button.del {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+  opacity: 0.6;
+}
+button.del:hover { opacity: 1; }
+
+/* ---- Panel actions ---- */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hint { font-size: 0.8rem; color: #475569; flex: 1; }
+
+#submit-status { font-size: 0.82rem; }

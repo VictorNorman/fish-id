@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pt
+*.pyc
+annotations/images/
+annotations/labels/
+annotations/labels.cache
+data.yaml
+runs/

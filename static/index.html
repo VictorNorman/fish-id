@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish ID Live</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🐠 Fish ID Live</h1>
+    <div class="header-right">
+      <span id="save-flash" style="font-size:0.8rem;color:#22c55e;"></span>
+      <span id="retrain-status"></span>
+      <button id="btn-retrain" class="btn btn-secondary" onclick="triggerRetrain()">Retrain Now</button>
+      <a href="/review.html" class="btn btn-secondary">Review Annotations</a>
+      <a href="/export" class="btn btn-secondary">Export Annotations</a>
+    </div>
+  </header>
+
+  <main>
+    <div id="viewer">
+      <img id="stream" src="/video_feed" alt="Live stream">
+      <div id="annotation-layer" class="hidden">
+        <img id="frozen-frame" alt="Paused frame">
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-pause" class="btn btn-primary" onclick="pause()">Pause &amp; Annotate</button>
+      <button id="btn-resume" class="btn btn-secondary hidden" onclick="resume()">Resume Stream</button>
+    </div>
+
+    <section id="annotation-panel" class="hidden">
+
+      <!-- Label picker — shown when a box is selected -->
+      <div id="label-picker" class="hidden">
+        <p class="picker-prompt">Label this box:</p>
+        <div id="label-grid"></div>
+        <button class="btn btn-add-species" onclick="addNewSpecies()">+ New species</button>
+      </div>
+
+      <!-- Box list -->
+      <ul id="box-list"></ul>
+
+      <div class="panel-actions">
+        <p class="hint">Draw boxes on the image, then label each one.</p>
+        <button class="btn btn-primary" onclick="submitAnnotations()">Submit Annotations</button>
+        <button id="btn-save-later" class="btn btn-secondary" onclick="saveForLater()">Save for Later</button>
+        <span id="submit-status"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
