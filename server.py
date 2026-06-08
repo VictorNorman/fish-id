@@ -1,12 +1,20 @@
 import json
+import os
 import shutil
 import threading
 import time
 from pathlib import Path
 
+# nvm installs node outside the default PATH; find and add it so yt-dlp
+# can use it to solve YouTube's JS challenge.
+_nvm_node_dir = Path.home() / ".nvm" / "versions" / "node"
+if _nvm_node_dir.exists():
+    _versions = sorted(_nvm_node_dir.iterdir(), reverse=True)
+    if _versions:
+        os.environ["PATH"] = str(_versions[0] / "bin") + ":" + os.environ.get("PATH", "")
+
 import cv2
 import numpy as np
-import yt_dlp
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +26,7 @@ from vidgear.gears import CamGear
 # Paths (all relative to this file's directory)
 # ---------------------------------------------------------------------------
 BASE = Path(__file__).parent
-MODEL_PATH = BASE.parent / "best.pt"
+MODEL_PATH = BASE / "fish_id.pt"
 YOLO11_BASE = "yolo11m.pt"   # downloaded by ultralytics on first retrain
 CLASSES_FILE = BASE / "classes.json"
 ANNOTATIONS_DIR = BASE / "annotations"
@@ -44,7 +52,7 @@ def save_classes(names: list[str]):
 # Global state (protected by locks where needed)
 # ---------------------------------------------------------------------------
 classes: list[str] = load_classes()
-model = YOLO(str(MODEL_PATH))
+model = YOLO(str(MODEL_PATH) if MODEL_PATH.exists() else YOLO11_BASE)
 
 _frame_lock = threading.Lock()
 _raw_frame: np.ndarray | None = None
@@ -59,18 +67,6 @@ _inferencing = True  # set to False during retraining to free MPS
 # ---------------------------------------------------------------------------
 # Background frame-capture thread
 # ---------------------------------------------------------------------------
-def _resolve_live_url(youtube_url: str) -> str:
-    """Resolve a YouTube live URL to a direct stream URL at the live edge."""
-    ydl_opts = {
-        "format": "best[height<=1080]",
-        "quiet": True,
-        "no_warnings": True,
-        "live_from_start": False,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(youtube_url, download=False)
-        return info["url"]
-
 def _capture_loop():
     global _raw_frame, _annotated_frame
     stream = None
@@ -81,8 +77,22 @@ def _capture_loop():
         if stream is None:
             try:
                 print("Connecting to stream...")
-                direct_url = _resolve_live_url(STREAM_URL)
-                stream = CamGear(source=direct_url).start()
+                # Resolve the node executable path (installed via nvm)
+                _node_bin = next(
+                    (str(p / "bin" / "node") for p in sorted(
+                        (Path.home() / ".nvm" / "versions" / "node").iterdir(), reverse=True
+                    ) if (p / "bin" / "node").exists()),
+                    "node",
+                )
+                stream = CamGear(  # type: ignore[call-arg]
+                    source=STREAM_URL,
+                    stream_mode=True,
+                    STREAM_PARAMS={
+                        "cookiesfrombrowser": ("firefox",),
+                        "live_from_start": False,
+                        "js_runtimes": {"node": {"path": _node_bin}},
+                    },
+                ).start()
                 null_streak = 0
                 print("Stream connected.")
             except Exception as e:

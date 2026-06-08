@@ -7,3 +7,4 @@ annotations/labels/
 annotations/labels.cache
 data.yaml
 runs/
+.claude/
