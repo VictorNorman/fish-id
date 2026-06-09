@@ -6,5 +6,6 @@ annotations/images/
 annotations/labels/
 annotations/labels.cache
 data.yaml
+last_retrain.json
 runs/
 .claude/

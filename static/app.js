@@ -363,7 +363,16 @@ async function triggerRetrain() {
   if (res.ok) pollStatus();
   else {
     const d = await res.json();
-    alert(d.detail || "Could not start retrain.");
+    alert(d.detail || "Could not start full retrain.");
+  }
+}
+
+async function triggerQuickRetrain() {
+  const res = await fetch("/retrain/quick", { method: "POST" });
+  if (res.ok) pollStatus();
+  else {
+    const d = await res.json();
+    alert(d.detail || "Could not start quick retrain.");
   }
 }
 
@@ -372,17 +381,21 @@ function pollStatus() {
     .then(r => r.json())
     .then(data => {
       const el = document.getElementById("retrain-status");
+      const qbtn = document.getElementById("btn-quick-retrain");
+      if (qbtn) qbtn.textContent = `Quick Retrain (${data.new_annotations} new)`;
       if (data.status === "running") {
-        el.textContent = "⏳ Retraining…";
+        el.textContent = data.type === "quick" ? "⏳ Quick retraining…" : "⏳ Retraining…";
         setTimeout(pollStatus, 3000);
       } else if (data.status === "done") {
         el.textContent = "✅ Model updated";
         setTimeout(() => { el.textContent = statusLine(data); }, 4000);
+        setTimeout(pollStatus, 10000);
       } else {
         el.textContent = statusLine(data);
+        setTimeout(pollStatus, 10000);
       }
     })
-    .catch(() => {});
+    .catch(() => { setTimeout(pollStatus, 10000); });
 }
 
 function statusLine(data) {

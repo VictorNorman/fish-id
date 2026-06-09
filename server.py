@@ -33,6 +33,7 @@ ANNOTATIONS_DIR = BASE / "annotations"
 IMAGES_DIR = ANNOTATIONS_DIR / "images"
 LABELS_DIR = ANNOTATIONS_DIR / "labels"
 DATA_YAML = BASE / "data.yaml"
+LAST_RETRAIN_FILE = BASE / "last_retrain.json"
 STREAM_URL = "https://youtu.be/7i8ARjIeM2k"
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,33 @@ def load_classes() -> list[str]:
 def save_classes(names: list[str]):
     CLASSES_FILE.write_text(json.dumps(names, indent=2))
 
+def _load_last_retrain_time() -> float:
+    if LAST_RETRAIN_FILE.exists():
+        return json.loads(LAST_RETRAIN_FILE.read_text()).get("time", 0.0)
+    return 0.0
+
+def _save_last_retrain_time(annotations_in_model: int):
+    LAST_RETRAIN_FILE.write_text(json.dumps({
+        "time": time.time(),
+        "annotations_in_model": annotations_in_model,
+    }))
+
+def _load_annotations_in_model() -> int:
+    if LAST_RETRAIN_FILE.exists():
+        return json.loads(LAST_RETRAIN_FILE.read_text()).get("annotations_in_model", 0)
+    return 0
+
+def _get_new_annotation_ids() -> list[str]:
+    last_time = _load_last_retrain_time()
+    result = []
+    for lbl_path in LABELS_DIR.glob("*.txt"):
+        try:
+            if float(lbl_path.stem) > last_time:
+                result.append(lbl_path.stem)
+        except ValueError:
+            pass
+    return result
+
 # ---------------------------------------------------------------------------
 # Global state (protected by locks where needed)
 # ---------------------------------------------------------------------------
@@ -61,6 +89,7 @@ _pending_frame: np.ndarray | None = None  # frame shown to user for annotation
 
 _retrain_lock = threading.Lock()
 _retrain_status = "idle"   # "idle" | "running" | "done"
+_retrain_type = "full"     # "full" | "quick"
 _annotation_count = len(list(LABELS_DIR.glob("*.txt")))
 _inferencing = True  # set to False during retraining to free MPS
 
@@ -118,7 +147,7 @@ def _capture_loop():
             time.sleep(0.1)
             continue
         results = model.predict(frame, conf=0.6, device="mps", verbose=False)
-        annotated = results[0].plot(pil=False, conf=False, font_size=18)
+        annotated = results[0].plot(pil=False, conf=False, line_width=1)
         with _frame_lock:
             _raw_frame = frame.copy()
             _annotated_frame = annotated.copy()
@@ -140,7 +169,7 @@ def _retrain_worker():
     global _retrain_status, model, _inferencing
     _inferencing = False
     try:
-        print("Retrain started")
+        print("Full retrain started")
         _write_data_yaml()
         train_model = YOLO(YOLO11_BASE)
         result = train_model.train(
@@ -154,8 +183,9 @@ def _retrain_worker():
         if weights.exists():
             shutil.copy(weights, MODEL_PATH)
             model = YOLO(str(MODEL_PATH))
+        _save_last_retrain_time(len(list(LABELS_DIR.glob("*.txt"))))
         _retrain_status = "done"
-        print("Retrain complete — model hot-swapped")
+        print("Full retrain complete — model hot-swapped")
     except Exception as e:
         print(f"Retrain failed: {e}")
         _retrain_status = "idle"
@@ -165,6 +195,73 @@ def _retrain_worker():
             _retrain_lock.release()
         except RuntimeError:
             pass
+
+
+def _quick_retrain_worker(new_ids: list[str]):
+    global _retrain_status, model, _inferencing
+    _inferencing = False
+    try:
+        import tempfile
+        print(f"Quick retrain started on {len(new_ids)} new annotations")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            (tmp / "images").mkdir()
+            (tmp / "labels").mkdir()
+            for stem in new_ids:
+                img_src = IMAGES_DIR / f"{stem}.jpg"
+                lbl_src = LABELS_DIR / f"{stem}.txt"
+                if img_src.exists() and lbl_src.exists():
+                    shutil.copy(img_src, tmp / "images" / img_src.name)
+                    shutil.copy(lbl_src, tmp / "labels" / lbl_src.name)
+            tmp_yaml = tmp / "data.yaml"
+            tmp_yaml.write_text(
+                f"train: {tmp / 'images'}\n"
+                f"val: {tmp / 'images'}\n"
+                f"nc: {len(classes)}\n"
+                f"names: {classes}\n"
+            )
+            base = str(MODEL_PATH) if MODEL_PATH.exists() else YOLO11_BASE
+            train_model = YOLO(base)
+            result = train_model.train(
+                data=str(tmp_yaml),
+                epochs=5,
+                imgsz=640,
+                device="cpu",
+                verbose=True,
+            )
+            weights = Path(result.save_dir) / "weights" / "best.pt"
+            if weights.exists():
+                shutil.copy(weights, MODEL_PATH)
+                model = YOLO(str(MODEL_PATH))
+        _save_last_retrain_time(_load_annotations_in_model() + len(new_ids))
+        _retrain_status = "done"
+        print("Quick retrain complete — model hot-swapped")
+    except Exception as e:
+        print(f"Quick retrain failed: {e}")
+        _retrain_status = "idle"
+    finally:
+        _inferencing = True
+        try:
+            _retrain_lock.release()
+        except RuntimeError:
+            pass
+
+
+def _nightly_retrain_scheduler():
+    while True:
+        now = time.localtime()
+        seconds_until_2am = ((2 - now.tm_hour) * 3600 - now.tm_min * 60 - now.tm_sec) % 86400
+        if seconds_until_2am == 0:
+            seconds_until_2am = 86400
+        time.sleep(seconds_until_2am)
+        if _annotation_count > 0 and _retrain_lock.acquire(blocking=False):
+            global _retrain_status, _retrain_type
+            _retrain_type = "full"
+            _retrain_status = "running"
+            print("Nightly full retrain triggered")
+            threading.Thread(target=_retrain_worker, daemon=True).start()
+
+threading.Thread(target=_nightly_retrain_scheduler, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -354,22 +451,41 @@ def annotate(payload: AnnotationPayload):
 
 @app.get("/retrain/status")
 def retrain_status():
+    new_count = len(_get_new_annotation_ids())
     return {
         "status": _retrain_status,
+        "type": _retrain_type,
         "total_annotations": _annotation_count,
+        "annotations_in_model": _load_annotations_in_model(),
+        "new_annotations": new_count,
     }
 
 @app.post("/retrain")
 def trigger_retrain():
-    global _retrain_status, _new_since_retrain
+    global _retrain_status, _retrain_type
     if _retrain_status == "running":
         raise HTTPException(409, "Retrain already running")
     if not _retrain_lock.acquire(blocking=False):
         raise HTTPException(409, "Retrain already running")
-    _new_since_retrain = 0
+    _retrain_type = "full"
     _retrain_status = "running"
     threading.Thread(target=_retrain_worker, daemon=True).start()
     return {"status": "started"}
+
+@app.post("/retrain/quick")
+def trigger_quick_retrain():
+    global _retrain_status, _retrain_type
+    if _retrain_status == "running":
+        raise HTTPException(409, "Retrain already running")
+    new_ids = _get_new_annotation_ids()
+    if not new_ids:
+        raise HTTPException(400, "No new annotations since last retrain")
+    if not _retrain_lock.acquire(blocking=False):
+        raise HTTPException(409, "Retrain already running")
+    _retrain_type = "quick"
+    _retrain_status = "running"
+    threading.Thread(target=_quick_retrain_worker, args=(new_ids,), daemon=True).start()
+    return {"status": "started", "new_count": len(new_ids)}
 
 # ---------------------------------------------------------------------------
 # Export annotations as zip (for Colab upload)
@@ -395,3 +511,34 @@ def export_annotations():
 
 # Serve static files (index.html, app.js, style.css)
 app.mount("/", StaticFiles(directory=str(BASE / "static"), html=True), name="static")
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Fish ID utilities")
+    parser.add_argument("--retrain", action="store_true",
+                        help="Run a full retrain from scratch and exit")
+    args = parser.parse_args()
+
+    if args.retrain:
+        count = len(list(LABELS_DIR.glob("*.txt")))
+        print(f"Starting full retrain on {count} annotations...")
+        _write_data_yaml()
+        train_model = YOLO(YOLO11_BASE)
+        result = train_model.train(
+            data=str(DATA_YAML),
+            epochs=20,
+            imgsz=640,
+            device="cpu",
+            verbose=True,
+        )
+        weights = Path(result.save_dir) / "weights" / "best.pt"
+        if weights.exists():
+            shutil.copy(weights, MODEL_PATH)
+            print(f"Model saved to {MODEL_PATH}")
+        _save_last_retrain_time(len(list(LABELS_DIR.glob("*.txt"))))
+        print("Retrain complete.")
+    else:
+        parser.print_help()
