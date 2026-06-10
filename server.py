@@ -15,6 +15,7 @@ if _nvm_node_dir.exists():
 
 import cv2
 import numpy as np
+import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +36,28 @@ LABELS_DIR = ANNOTATIONS_DIR / "labels"
 DATA_YAML = BASE / "data.yaml"
 LAST_RETRAIN_FILE = BASE / "last_retrain.json"
 STREAM_URL = "https://youtu.be/7i8ARjIeM2k"
+
+# ---------------------------------------------------------------------------
+# Device selection (auto-detected)
+# ---------------------------------------------------------------------------
+if torch.cuda.is_available():
+    INFERENCE_DEVICE = "cuda"
+    TRAIN_DEVICE = "cuda"
+elif torch.backends.mps.is_available():
+    INFERENCE_DEVICE = "mps"
+    TRAIN_DEVICE = "cpu"   # avoid MPS memory conflicts during training
+else:
+    INFERENCE_DEVICE = "cpu"
+    TRAIN_DEVICE = "cpu"
+
+print(f"Devices — inference: {INFERENCE_DEVICE}, training: {TRAIN_DEVICE}")
+
+# Cookie auth: set one of these env vars (COOKIES_FILE takes precedence).
+# COOKIES_FILE=/path/to/cookies.txt  — Netscape-format file exported via yt-dlp
+# COOKIES_BROWSER=chrome             — read live from a browser (firefox, chrome, etc.)
+# Set COOKIES_BROWSER= to disable cookie auth entirely.
+COOKIES_FILE = os.environ.get("COOKIES_FILE", "")
+COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER", "firefox")
 
 # ---------------------------------------------------------------------------
 # Class registry
@@ -107,20 +130,26 @@ def _capture_loop():
             try:
                 print("Connecting to stream...")
                 # Resolve the node executable path (installed via nvm)
-                _node_bin = next(
-                    (str(p / "bin" / "node") for p in sorted(
-                        (Path.home() / ".nvm" / "versions" / "node").iterdir(), reverse=True
-                    ) if (p / "bin" / "node").exists()),
-                    "node",
-                )
+                _nvm_node_dir = Path.home() / ".nvm" / "versions" / "node"
+                _node_bin = "node"
+                if _nvm_node_dir.exists():
+                    _node_bin = next(
+                        (str(p / "bin" / "node") for p in sorted(_nvm_node_dir.iterdir(), reverse=True)
+                         if (p / "bin" / "node").exists()),
+                        "node",
+                    )
+                _stream_params: dict = {
+                    "live_from_start": False,
+                    "js_runtimes": {"node": {"path": _node_bin}},
+                }
+                if COOKIES_FILE:
+                    _stream_params["cookiefile"] = COOKIES_FILE
+                elif COOKIES_BROWSER:
+                    _stream_params["cookiesfrombrowser"] = (COOKIES_BROWSER,)
                 stream = CamGear(  # type: ignore[call-arg]
                     source=STREAM_URL,
                     stream_mode=True,
-                    STREAM_PARAMS={
-                        "cookiesfrombrowser": ("firefox",),
-                        "live_from_start": False,
-                        "js_runtimes": {"node": {"path": _node_bin}},
-                    },
+                    STREAM_PARAMS=_stream_params,
                 ).start()
                 null_streak = 0
                 print("Stream connected.")
@@ -146,8 +175,8 @@ def _capture_loop():
                 _raw_frame = frame.copy()
             time.sleep(0.1)
             continue
-        results = model.predict(frame, conf=0.6, device="mps", verbose=False)
-        annotated = results[0].plot(pil=False, conf=False, line_width=1)
+        results = model.predict(frame, conf=0.6, device=INFERENCE_DEVICE, verbose=False)
+        annotated = results[0].plot(pil=False, conf=False, font_size=18, line_width=1)
         with _frame_lock:
             _raw_frame = frame.copy()
             _annotated_frame = annotated.copy()
@@ -167,7 +196,7 @@ def _write_data_yaml():
 
 def _retrain_worker():
     global _retrain_status, model, _inferencing
-    _inferencing = False
+    _inferencing = INFERENCE_DEVICE == "mps"
     try:
         print("Full retrain started")
         _write_data_yaml()
@@ -176,7 +205,7 @@ def _retrain_worker():
             data=str(DATA_YAML),
             epochs=20,
             imgsz=640,
-            device="cpu",
+            device=TRAIN_DEVICE,
             verbose=True,
         )
         weights = Path(result.save_dir) / "weights" / "best.pt"
@@ -199,7 +228,7 @@ def _retrain_worker():
 
 def _quick_retrain_worker(new_ids: list[str]):
     global _retrain_status, model, _inferencing
-    _inferencing = False
+    _inferencing = INFERENCE_DEVICE == "mps"
     try:
         import tempfile
         print(f"Quick retrain started on {len(new_ids)} new annotations")
@@ -226,7 +255,7 @@ def _quick_retrain_worker(new_ids: list[str]):
                 data=str(tmp_yaml),
                 epochs=5,
                 imgsz=640,
-                device="cpu",
+                device=TRAIN_DEVICE,
                 verbose=True,
             )
             weights = Path(result.save_dir) / "weights" / "best.pt"
@@ -524,6 +553,9 @@ if __name__ == "__main__":
 
     if args.retrain:
         count = len(list(LABELS_DIR.glob("*.txt")))
+        if count == 0:
+            print("No annotations found — nothing to train on.")
+            raise SystemExit(1)
         print(f"Starting full retrain on {count} annotations...")
         _write_data_yaml()
         train_model = YOLO(YOLO11_BASE)
@@ -531,7 +563,7 @@ if __name__ == "__main__":
             data=str(DATA_YAML),
             epochs=20,
             imgsz=640,
-            device="cpu",
+            device=TRAIN_DEVICE,
             verbose=True,
         )
         weights = Path(result.save_dir) / "weights" / "best.pt"

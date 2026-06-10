@@ -7,5 +7,7 @@ annotations/labels/
 annotations/labels.cache
 data.yaml
 last_retrain.json
+cookies.txt
+*.tar
 runs/
 .claude/
